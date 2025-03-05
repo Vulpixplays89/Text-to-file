@@ -16,6 +16,7 @@ ADMIN_ID = 6897739611  # Replace with your Telegram ID
 TOKEN = "8166833803:AAHcpRDyfyt5yE__AHAeu6oHul1hpmxduZ8"
 bot = telebot.TeleBot(TOKEN)
 
+app = Flask('')
 @app.route('/')
 def home():
     return "I am alive"
