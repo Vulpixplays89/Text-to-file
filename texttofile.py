@@ -2,6 +2,8 @@ import telebot
 import os
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pymongo import MongoClient
+from threading import Thread 
+from flask import Flask 
 
 # MongoDB Connection
 MONGO_URL = "mongodb+srv://textbot:textbot@cluster0.afoyw.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
