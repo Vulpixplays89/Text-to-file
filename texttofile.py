@@ -1,9 +1,11 @@
 import telebot
 import os
+import zipfile
+import rarfile
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pymongo import MongoClient
-from threading import Thread 
-from flask import Flask 
+from flask import Flask
+from threading import Thread
 
 # MongoDB Connection
 MONGO_URL = "mongodb+srv://textbot:textbot@cluster0.afoyw.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
@@ -16,7 +18,8 @@ ADMIN_ID = 6897739611  # Replace with your Telegram ID
 TOKEN = "8166833803:AAHcpRDyfyt5yE__AHAeu6oHul1hpmxduZ8"
 bot = telebot.TeleBot(TOKEN)
 
-app = Flask('')
+app = Flask(' ')
+
 @app.route('/')
 def home():
     return "I am alive"
@@ -50,8 +53,8 @@ def main_menu():
     markup = InlineKeyboardMarkup(row_width=1)
     markup.add(
         InlineKeyboardButton("📂 Choose a File Type", callback_data="choose_option"),
-        InlineKeyboardButton("📢 Channel", url="https://t.me/join_hyponet"),  # Replace with your channel
-        InlineKeyboardButton("👨‍💻 Developer", url="https://t.me/botplays90")  # Replace with your contact
+        InlineKeyboardButton("📢 Channel", url="https://t.me/yourchannel"),  # Replace with your channel
+        InlineKeyboardButton("👨‍💻 Developer", url="https://t.me/yourusername")  # Replace with your contact
     )
     return markup
 
@@ -114,43 +117,42 @@ def store_text(message):
 
 # Dictionary to track user state for file naming
 waiting_for_filename = {}
-
 @bot.message_handler(commands=['done'])
 def ask_file_name(message):
     user_id = message.chat.id
 
-    if user_id in user_messages and user_messages[user_id]:
-        waiting_for_filename[user_id] = True  # Set the state before asking for filename
-        bot.send_message(user_id, "📂 Please enter a file name (without extension):")
-    else:
-        bot.send_message(user_id, "❌ You haven't sent any messages yet. Send some text first!")
+    # Debugging print to check if user_files is populated
+    print(f"Checking files for user {user_id}: {user_files.get(user_id)}")
+
+    # Ensure the user has uploaded files before proceeding
+    if user_id not in user_files or not user_files[user_id]:  
+        bot.send_message(user_id, "❌ You haven't sent any files! Please send some files first.")
+        return
+
+    waiting_for_filename[user_id] = True
+    bot.send_message(user_id, "📂 Enter a name for the compressed file (without extension):")
 
 
-@bot.message_handler(func=lambda message: message.chat.id in waiting_for_filename)
-def save_file_with_name(message):
-    user_id = message.chat.id
-    file_extension = user_file_type.get(user_id, "txt")
-    
-    # Clean the file name (remove special characters)
-    file_name = "".join(c for c in message.text if c.isalnum() or c in ("_", "-")).strip()
-    
-    # If empty, set a default name
-    if not file_name:
-        file_name = f"file_{user_id}"
 
-    file_name = f"{file_name}.{file_extension}"
+def save_file_with_name(user_id, file_name):
+    # Ensure the user_messages dictionary contains the user ID
+    if user_id not in user_messages or not user_messages[user_id]:  
+        print(f"⚠️ Warning: No messages found for user {user_id}")
+        return "❌ No text messages found to save. Please send some text first."
 
-    # Write the file
-    with open(file_name, "w", encoding="utf-8") as file:
-        file.write("\n".join(user_messages[user_id]))
+    file_path = f"user_files/{file_name}.txt"
 
-    with open(file_name, "rb") as file:
-        bot.send_document(user_id, file)
+    try:
+        with open(file_path, "w", encoding="utf-8") as file:
+            file.write("\n".join(user_messages[user_id]))  
+        
+        # Clear messages after saving
+        user_messages[user_id] = []
 
-    os.remove(file_name)  # Delete after sending
-    user_messages[user_id] = []  # Clear messages
-    waiting_for_filename.pop(user_id, None)  # Remove from waiting state
-    bot.send_message(user_id, "✅ File sent! You can start a new session now.")
+        return file_path
+    except Exception as e:
+        print(f"❌ Error saving file for user {user_id}: {e}")
+        return "❌ Failed to save file."
 
 
 
@@ -202,6 +204,137 @@ def broadcast(message):
             failed += 1
 
     bot.send_message(ADMIN_ID, f"✅ Broadcast sent!\n📤 Sent: {sent}\n❌ Failed: {failed}")
+
+import os
+import zipfile
+import rarfile
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+# Dictionaries to track user uploads and compression preferences
+user_files = {}
+user_compression_type = {}
+waiting_for_filename = {}
+@bot.message_handler(commands=['convert'])
+def convert_files(message):
+    user_id = message.chat.id
+    
+    if user_id not in user_files:
+        user_files[user_id] = []  # Initialize only if not existing
+    
+    markup = InlineKeyboardMarkup()
+    markup.add(
+        InlineKeyboardButton("🗜 ZIP", callback_data=f"set_zip_{user_id}"),
+        InlineKeyboardButton("📦 RAR", callback_data=f"set_rar_{user_id}")
+    )
+
+    bot.send_message(user_id, "Choose the compression format:", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("set_zip") or call.data.startswith("set_rar"))
+def set_compression_format(call):
+    user_id = call.message.chat.id  # Fix: Get directly from message context
+    user_compression_type[user_id] = "zip" if "set_zip" in call.data else "rar"
+
+    bot.send_message(user_id, "✅ Format selected! Now send the files you want to compress. When done, type /done.")
+
+@bot.message_handler(content_types=['document'])
+def receive_files(message):
+    user_id = message.chat.id
+
+    if user_id not in user_files:
+        bot.send_message(user_id, "❌ Please use /convert first.")
+        return
+
+    file_id = message.document.file_id
+    file_name = message.document.file_name
+    file_info = bot.get_file(file_id)
+    downloaded_file = bot.download_file(file_info.file_path)
+
+    user_folder = f"user_files/{user_id}"
+    os.makedirs(user_folder, exist_ok=True)  # Ensure the folder exists
+    file_path = os.path.join(user_folder, file_name)
+
+    with open(file_path, "wb") as f:
+        f.write(downloaded_file)
+
+    if user_id not in user_files:
+        user_files[user_id] = []  # Ensure list exists
+
+    user_files[user_id].append(file_path)  # Store the file path
+    bot.send_message(user_id, f"📄 File `{file_name}` received! Send more or type /done.", parse_mode="Markdown")
+
+    # Debugging print
+    print(f"User {user_id} uploaded {file_name}. Files stored: {user_files[user_id]}")
+
+
+@bot.message_handler(commands=['done'])
+def ask_file_name(message):
+    user_id = message.chat.id
+
+    # Check if user has sent any files
+    if user_id not in user_files or not user_files[user_id]:  
+        bot.send_message(user_id, "❌ You haven't sent any files! Please send some files first.")
+        return
+
+    waiting_for_filename[user_id] = True
+    bot.send_message(user_id, "📂 Enter a name for the compressed file (without extension):")
+@bot.message_handler(func=lambda message: message.chat.id in waiting_for_filename)
+def create_archive(message):
+    user_id = message.chat.id
+    file_name = "".join(c for c in message.text if c.isalnum() or c in ("_", "-")).strip()
+
+    if not file_name:
+        file_name = f"archive_{user_id}"
+
+    archive_format = user_compression_type.get(user_id, "zip")
+    archive_path = f"user_files/{file_name}.{archive_format}"
+    user_folder = f"user_files/{user_id}"
+
+    if user_id not in user_files or not user_files[user_id]:
+        bot.send_message(user_id, "❌ No files to compress. Please send files first.")
+        return  
+
+    # Create ZIP or RAR archive
+    if archive_format == "zip":
+        with zipfile.ZipFile(archive_path, 'w') as zipf:
+            for file_path in user_files[user_id]:
+                zipf.write(file_path, os.path.basename(file_path))
+    elif archive_format == "rar":
+        with rarfile.RarFile(archive_path, 'w') as rarf:
+            for file_path in user_files[user_id]:
+                rarf.write(file_path, os.path.basename(file_path))
+
+    # Send the archive
+    with open(archive_path, "rb") as file:
+        bot.send_document(user_id, file)
+
+    # 🔥 Delete user-uploaded files immediately after sending
+    for file_path in user_files[user_id]:
+        try:
+            os.remove(file_path)
+        except Exception as e:
+            print(f"❌ Error deleting file {file_path}: {e}")
+
+    # 🔥 Delete the archive after sending
+    try:
+        os.remove(archive_path)
+    except Exception as e:
+        print(f"❌ Error deleting archive {archive_path}: {e}")
+
+    # 🔥 Delete user folder if empty
+    if os.path.exists(user_folder) and not os.listdir(user_folder):  
+        os.rmdir(user_folder)  
+
+    # 🔹 Reset user data
+    waiting_for_filename.pop(user_id, None)
+    user_files.pop(user_id, None)
+    user_compression_type.pop(user_id, None)
+
+    bot.send_message(user_id, "✅ Compression complete! File sent and deleted successfully.")
+
+
+
+
+
     
 keep_alive()
 
