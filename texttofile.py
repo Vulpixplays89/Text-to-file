@@ -68,8 +68,8 @@ def main_menu():
     markup = InlineKeyboardMarkup(row_width=1)
     markup.add(
         InlineKeyboardButton("📂 Choose a File Type", callback_data="choose_option"),
-        InlineKeyboardButton("📢 Channel", url="https://t.me/yourchannel"),  # Replace with your channel
-        InlineKeyboardButton("👨‍💻 Developer", url="https://t.me/yourusername")  # Replace with your contact
+        InlineKeyboardButton("📢 Channel", url="https://t.me/join_hyponet"),  # Replace with your channel
+        InlineKeyboardButton("👨‍💻 Developer", url="https://t.me/botplays90")  # Replace with your contact
     )
     return markup
 
